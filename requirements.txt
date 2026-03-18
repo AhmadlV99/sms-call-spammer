@@ -1,0 +1,2 @@
+# No Python dependencies needed
+# Termux-API handles SMS/calls natively
